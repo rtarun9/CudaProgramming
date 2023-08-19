@@ -112,7 +112,7 @@ int main()
         printf("\n");
     }
 
-    printf("\n Expected resume :: \n");
+    printf("\n Expected result :: \n");
     
     for (int i = 0; i < MATRIX_DIMENSION; i++)
     {
