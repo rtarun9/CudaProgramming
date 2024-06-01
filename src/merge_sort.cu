@@ -39,7 +39,7 @@ __global__ void merge_sort(int* input_buffer, int* output_buffer, int num_elemen
         output_buffer[index++] = input_buffer[left_array_start++];
     }
 
-    while (right_array_start<= left_array_end)
+    while (right_array_start<= right_array_end)
     {
         output_buffer[index++] = input_buffer[right_array_start++];
     }
