@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define MATRIX_DIMENSION 3
+#define MATRIX_DIMENSION 32
 
 // Idea on how to approach.
 // Consider the matrix to be 32x32.
@@ -68,9 +68,9 @@ int main()
         printf("\n");
     }
     // Transpose matrix b.
-    for (int i = 0; i < MATRIX_DIMENSION / 2; i++)
+    for (int i = 0; i < MATRIX_DIMENSION; i++)
     {
-        for (int j = i+ 1; j < MATRIX_DIMENSION; j++)
+        for (int j = 0; j < i; j++)
         {
             int temp = host_matrix_b[i * MATRIX_DIMENSION + j];
             host_matrix_b[i * MATRIX_DIMENSION + j]  = host_matrix_b[j * MATRIX_DIMENSION + i];
@@ -121,9 +121,9 @@ int main()
     }
 
     // Transpose back to normal form before doing regular CPU matrix mul.
-    for (int i = 0; i < MATRIX_DIMENSION / 2; i++)
+    for (int i = 0; i < MATRIX_DIMENSION; i++)
     {
-        for (int j = i+ 1; j < MATRIX_DIMENSION; j++)
+        for (int j = 0; j <i; j++)
         {
             int temp = host_matrix_b[i * MATRIX_DIMENSION + j];
             host_matrix_b[i * MATRIX_DIMENSION + j]  = host_matrix_b[j * MATRIX_DIMENSION + i];
@@ -167,7 +167,7 @@ int main()
             printf("%d ", sum);
             if (sum != host_matrix_product_result[i + j * MATRIX_DIMENSION])
             {
-                printf("ERROR at index %d %d %d.\n", i, j, sum);
+                printf("ERROR at index %d %d %d %d.\n", i, j, sum, host_matrix_product_result[i + j * MATRIX_DIMENSION]);
                 return -1;
             }
         }
