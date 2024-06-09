@@ -1,5 +1,7 @@
 // Simple approach : Have 2 pass.
 // One where each thread group finds the sum, and second where all thread groups find the collective sum.
+// Unlike the shared_memory approach, here thread divergence is largely reduced.
+// The if statement (thread_id % stride == 0) is entirely removed.
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -20,11 +22,22 @@ void sum_reduction(int* input_array, int* output_array, int phase_count_start, i
     {
         for (int i = phase_count_start; i <= phase_count_end; i++)
         {
-            const int stride = 1 << i;
+            const int stride = 1 << (i - 1);
+            const int idx = stride * 2 * threadIdx.x;
 
-            if (thread_id % stride == 0)
+            //if (thread_id % stride == 0)
+            // Now, to simplify this if statement is removed.
+            // threadIdx.x = 0 means sum of element at index 0 and the 1
+            // threadIdx.x = 1 means sum of element at index 2 and the 3, etc.
+
+            // While yes this is a if statement, it causes a LOT less WARP divergence than before.
+            // Say we have a warp of 32 elements.
+            // Before (shared_mem approach), you can expect 1/2 of warp to have diverged threads.
+            // But here... there is a chance that in the block within a WARP there is no divergence at all!
+            // This is because idx is sequential. Plus, tehre is no use of % which is fairly slow.
+            if (idx < blockDim.x)
             {
-                smem[threadIdx.x] += smem[threadIdx.x + stride / 2];
+                smem[idx] += smem[idx + stride];
             }
             __syncthreads();
         }
