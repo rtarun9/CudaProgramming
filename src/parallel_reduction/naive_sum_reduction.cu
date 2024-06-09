@@ -11,8 +11,7 @@ __global__
 void sum_reduction(int* array, int phase_number)
 {
     const int thread_id = threadIdx.x + blockDim.x * blockIdx.x;
-    const int stride = round(pow(2, phase_number));
-    //const int stride = 1 << phase_number;
+    const int stride = 1 << phase_number;
 
     if (thread_id < NUM_ELEMENTS)
     {
@@ -31,7 +30,7 @@ int main()
     // Generate values for host array.
     for (int i = 0; i < NUM_ELEMENTS; i++)
     {
-        host_array[i] = i;
+        host_array[i] = rand();
     }
 
     cudaMalloc(&device_array, sizeof(int) * NUM_ELEMENTS);
