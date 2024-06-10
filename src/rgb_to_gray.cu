@@ -12,7 +12,7 @@ __global__ void rgb_to_grayscale(const unsigned char* input_image, unsigned char
     const int t_x = threadIdx.x + blockIdx.x * blockDim.x;
     const int t_y = threadIdx.y + blockIdx.y * blockDim.y;
 
-    // Why 4 writes are being made? Because each thread maps to one pixel, but in input image there are 4 unsigned chars representing each pixel.
+    // Why 4 reads are being made? Because each thread maps to one pixel, but in input image there are 4 unsigned chars representing each pixel.
     // In the output image, a single pixel corresponds to only one unsigned char, the grayscale value.
     const size_t output_image_pixel_index = t_x + t_y * width;
     const size_t input_image_pixel_red_component_index = output_image_pixel_index * 4; // a 1d pixel index that represents the first (red component) of pixel this thread is computing value for.
