@@ -1,4 +1,5 @@
 *.exe
 *.exp
 *.lib
+*.exp.ncu-rep
 *.exe.ncu-rep

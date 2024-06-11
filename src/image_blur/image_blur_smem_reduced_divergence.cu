@@ -12,107 +12,48 @@
 // This is done so that all data can be loaded into shared memory without any extra divergence for border / corner conditions.
 #define FILTER_DIM 5
 #define BLOCK_DIM_WITHOUT_PADDING 8
-#define BLOCK_DIM (8 + FILTER_DIM)
+#define BLOCK_DIM (BLOCK_DIM_WITHOUT_PADDING + FILTER_DIM)
 #define SMEM_ARRAY_DIM (BLOCK_DIM)
 
 __global__ void shared_mem_blur(const unsigned char* input_image, unsigned char* output_image, int width, int height)
 {
     __shared__ int smem_pixel_values[SMEM_ARRAY_DIM][SMEM_ARRAY_DIM];
 
-    const int t_x =  threadIdx.x + blockIdx.x * blockDim.x;
-    const int t_y = threadIdx.y + blockIdx.y * blockDim.y;
+    // The pixel location in output image this thread will write to (if eligible).
+    const int t_x = threadIdx.x;
+    const int t_y = threadIdx.y;
 
-    // Now, only some of these threads map to valid pixels in the image.
-    // For this, first shift the value of t_x and t_y by FILTER_DIM/2.
-    const int shifted_thread_x = threadIdx.x- FILTER_DIM /2;
-    const int shifted_thread_y = threadIdx.y- FILTER_DIM /2;
+    // In the overlapping thread block, thes shifted thread index -> image pixel relationship is:
+    const int shifted_t_x = t_x - FILTER_DIM / 2;
+    const int shifted_t_y = t_y - FILTER_DIM / 2;
 
-    // Now, use these values and find output image pixel locations that map to it.
-    const int output_thread_x = shifted_thread_x + blockIdx.x * BLOCK_DIM_WITHOUT_PADDING;
-    const int output_thread_y = shifted_thread_y+ blockIdx.y * BLOCK_DIM_WITHOUT_PADDING;
+    const int output_pixel_x = shifted_t_x + blockIdx.x * (BLOCK_DIM_WITHOUT_PADDING);
+    const int output_pixel_y= shifted_t_y + blockIdx.y * (BLOCK_DIM_WITHOUT_PADDING);
 
-    if (output_thread_x >= 0 && output_thread_x < width && output_thread_y >= 0 && output_thread_y < height)
+    // Write to shared memory.
+    // Note that some values might go OOB, so that case must be handled.
+    if (output_pixel_x< 0 || output_pixel_x > width || output_pixel_y < 0 || output_pixel_y > height)
     {
-        output_image[output_thread_x+ output_thread_y* width] = input_image[output_thread_x+ output_thread_y* width];
+        smem_pixel_values[threadIdx.y][threadIdx.x] = 0;
     }
-    return;
-
-    // Global index of threads (including overlapped regions).
-    const int overlapped_x =  threadIdx.x + blockIdx.x * blockDim.x;
-    const int overlapped_y = threadIdx.y + blockIdx.y * blockDim.y;
-
-    const int output_t_x =  threadIdx.x + blockIdx.x * blockDim.x;
-    const int output_t_y =  threadIdx.y + blockIdx.y * blockDim.y;
-
-    const int input_image_width = width + FILTER_DIM;
-
-    const int smem_index_x = threadIdx.x;
-    const int smem_index_y = threadIdx.y; 
-
-    smem_pixel_values[smem_index_y][smem_index_x] = input_image[t_x + t_y * input_image_width];
+    else
+    {
+        smem_pixel_values[threadIdx.y][threadIdx.x] = input_image[output_pixel_x+ output_pixel_y* (width)];
+    }
     __syncthreads();
 
-    // For border threads (in the block), load the additional data into shared memory.
-    if (threadIdx.x == 0)
+    if (shifted_t_x >= 0 && shifted_t_x < BLOCK_DIM_WITHOUT_PADDING && shifted_t_y >= 0 && shifted_t_y < BLOCK_DIM_WITHOUT_PADDING)
     {
-        for (int i = 1; i <= FILTER_DIM / 2; i++)
-        {
-            smem_pixel_values[smem_index_y][smem_index_x - i] = input_image[t_x - i + t_y * input_image_width];
-        }
-    }
-
-    if (threadIdx.x == blockDim.x - 1)
-    {
-        for (int i = 1; i <= FILTER_DIM / 2; i++)
-        {
-            smem_pixel_values[smem_index_y][smem_index_x + i] = input_image[t_x + i + t_y * input_image_width];
-        }
-
-    }
-
-    if (threadIdx.y == blockDim.x - 1)
-    {
-        for (int i = 1; i <= FILTER_DIM / 2; i++)
-        {
-            smem_pixel_values[smem_index_y + i][smem_index_x] = input_image[t_x +  (t_y + i) * input_image_width];
-        }
-
-    }
-
-    if (threadIdx.y == 0)
-    {
-        for (int i = 1; i <= FILTER_DIM / 2; i++)
-        {
-            smem_pixel_values[smem_index_y - i][smem_index_x] = input_image[t_x +  (t_y - i) * input_image_width];
-        }
-    }
-
-    __syncthreads();
-
-    // NOTE : Remove this once a suitable solution is found! Special edge case for teh corner pixels (4 per block)
-    bool corner_condition = (threadIdx.x == 0 && threadIdx.y == 0 || threadIdx.x == 0 && threadIdx.y == blockDim.y - 1 || threadIdx.x == blockDim.x - 1 && threadIdx.y == 0 || threadIdx.x == blockDim.x - 1 && threadIdx.y == blockDim.y - 1);
-    if (corner_condition)
-    {
-        for (int i = -FILTER_DIM / 2; i <= FILTER_DIM / 2; i++)
+        float pixel_sum = 0.0f;
+        for (int i = -FILTER_DIM/2; i <= FILTER_DIM/2; i++)
         {
             for (int j = -FILTER_DIM/2; j <= FILTER_DIM/2; j++)
             {
-                smem_pixel_values[smem_index_y + i][smem_index_x + j] = input_image[t_x + j +  (t_y + i) * input_image_width];
+                pixel_sum += smem_pixel_values[threadIdx.y+ i][threadIdx.x+ j];
             }
         }
+        output_image[output_pixel_x+ output_pixel_y* width] = pixel_sum / ((float)FILTER_DIM * FILTER_DIM);
     }
-    const size_t pixel_index = output_t_x+ output_t_y * width;
-
-    float pixel_sum = 0.0f;
-    for (int i = -FILTER_DIM/2; i <= FILTER_DIM/2; i++)
-    {
-        for (int j = -FILTER_DIM/2; j <= FILTER_DIM/2; j++)
-        {
-            pixel_sum += smem_pixel_values[smem_index_y + i][smem_index_x+ j];
-        }
-    }
-
-    output_image[pixel_index] = (unsigned char)(pixel_sum / (float)(FILTER_DIM * FILTER_DIM));
 
     return;
 }
@@ -143,7 +84,7 @@ int main()
     // Number of blocks will be as expected, note that number of threads per block increases.
     // This is so that all data can be loaded into shared memory without much divergence (as for edge pixels you need data of pixels that might be computed in other blocks).
     const dim3 block_dim = dim3(BLOCK_DIM, BLOCK_DIM, 1);
-    const dim3 grid_dim = dim3((width + BLOCK_DIM_WITHOUT_PADDING - 1) / block_dim.x, (height + BLOCK_DIM_WITHOUT_PADDING - 1) / block_dim.y, 1);
+    const dim3 grid_dim = dim3((width + BLOCK_DIM_WITHOUT_PADDING - 1) / BLOCK_DIM_WITHOUT_PADDING, (height + BLOCK_DIM_WITHOUT_PADDING - 1) / BLOCK_DIM_WITHOUT_PADDING, 1);
 
     printf("Block dim :: %d %d %d\n", block_dim.x, block_dim.y, block_dim.z);
     printf("Grid dim :: %d %d %d\n", grid_dim.x, grid_dim.y, grid_dim.z);
