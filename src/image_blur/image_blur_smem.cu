@@ -41,7 +41,7 @@ __global__ void shared_mem_blur(const unsigned char* input_image, unsigned char*
     // Now, load into shared mem. Keep in mind that border pixels need some extra work to do.
     // There is a bit of strange math here. The shared mem for this element is represented by threadIdx.x + FILTER_DIM / 2
     // This is to accomidate the extra data that is being loaded.
-    smem_pixel_values[smem_index_x][smem_index_y] = input_image[t_x + t_y * input_image_width];
+    smem_pixel_values[smem_index_y][smem_index_x] = input_image[t_x + t_y * input_image_width];
     __syncthreads();
 
     // For border threads (in the block), load the additional data into shared memory.
@@ -49,7 +49,7 @@ __global__ void shared_mem_blur(const unsigned char* input_image, unsigned char*
     {
         for (int i = 1; i <= FILTER_DIM / 2; i++)
         {
-            smem_pixel_values[smem_index_x - i][smem_index_y] = input_image[t_x - i + t_y * input_image_width];
+            smem_pixel_values[smem_index_y][smem_index_x - i] = input_image[t_x - i + t_y * input_image_width];
         }
     }
 
@@ -57,7 +57,7 @@ __global__ void shared_mem_blur(const unsigned char* input_image, unsigned char*
     {
         for (int i = 1; i <= FILTER_DIM / 2; i++)
         {
-            smem_pixel_values[smem_index_x + i][smem_index_y] = input_image[t_x + i + t_y * input_image_width];
+            smem_pixel_values[smem_index_y][smem_index_x + i] = input_image[t_x + i + t_y * input_image_width];
         }
 
     }
@@ -66,7 +66,7 @@ __global__ void shared_mem_blur(const unsigned char* input_image, unsigned char*
     {
         for (int i = 1; i <= FILTER_DIM / 2; i++)
         {
-            smem_pixel_values[smem_index_x][smem_index_y + i] = input_image[t_x +  (t_y + i) * input_image_width];
+            smem_pixel_values[smem_index_y + i][smem_index_x] = input_image[t_x +  (t_y + i) * input_image_width];
         }
 
     }
@@ -75,13 +75,24 @@ __global__ void shared_mem_blur(const unsigned char* input_image, unsigned char*
     {
         for (int i = 1; i <= FILTER_DIM / 2; i++)
         {
-            smem_pixel_values[smem_index_x][smem_index_y - i] = input_image[t_x +  (t_y - i) * input_image_width];
+            smem_pixel_values[smem_index_y - i][smem_index_x] = input_image[t_x +  (t_y - i) * input_image_width];
         }
     }
 
     __syncthreads();
 
     // NOTE : Remove this once a suitable solution is found! Special edge case for teh corner pixels (4 per block)
+    bool corner_condition = (threadIdx.x == 0 && threadIdx.y == 0 || threadIdx.x == 0 && threadIdx.y == blockDim.y - 1 || threadIdx.x == blockDim.x - 1 && threadIdx.y == 0 || threadIdx.x == blockDim.x - 1 && threadIdx.y == blockDim.y - 1);
+    if (corner_condition)
+    {
+        for (int i = -FILTER_DIM / 2; i <= FILTER_DIM / 2; i++)
+        {
+            for (int j = -FILTER_DIM/2; j <= FILTER_DIM/2; j++)
+            {
+                smem_pixel_values[smem_index_y + i][smem_index_x + j] = input_image[t_x + j +  (t_y + i) * input_image_width];
+            }
+        }
+    }
     const size_t pixel_index = output_t_x+ output_t_y * width;
 
     float pixel_sum = 0.0f;
@@ -89,7 +100,7 @@ __global__ void shared_mem_blur(const unsigned char* input_image, unsigned char*
     {
         for (int j = -FILTER_DIM/2; j <= FILTER_DIM/2; j++)
         {
-            pixel_sum += smem_pixel_values[smem_index_x + i][smem_index_y+ j];
+            pixel_sum += smem_pixel_values[smem_index_y + i][smem_index_x+ j];
         }
     }
 
