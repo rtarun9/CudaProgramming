@@ -18,13 +18,14 @@
 //      (a+b)   (d+c)
 //              (a+b+c+d)
 //                 0
-//        0       (a+b)
-//  0     a   (a+b)(a+b+c)
+//       0    c  (a+b)
+// 0    a   (a+b) (a+b+c)
 
-#define NUM_ELEMENTS 1024
+#define NUM_ELEMENTS 1024 * 1024
 #define BLOCK_DIM 1024
 
-__global__ void blelloch_scan(int* input_output_array)
+// Use shared memory and find the scan (prefix sum) for a small portion of the overall input array.
+__global__ void blelloch_scan(int* input_output_array, int* per_block_scan_output)
 {
     __shared__ int smem[BLOCK_DIM];
 
@@ -64,7 +65,23 @@ __global__ void blelloch_scan(int* input_output_array)
         __syncthreads();
     }
 
+
+    if (per_block_scan_output && threadIdx.x == blockDim.x - 1)
+    {
+        per_block_scan_output[blockIdx.x] = input_output_array[tx] + smem[threadIdx.x];
+    }
+
     input_output_array[tx] = smem[threadIdx.x];
+}
+
+__global__ void add_array_with_per_block_scan_result(int* input_output_array, int* per_block_scan_output)
+{
+    const int tx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if (blockIdx.x > 0)
+    {
+        input_output_array[tx] += per_block_scan_output[blockIdx.x];
+    }
 }
 
 int main()
@@ -77,7 +94,7 @@ int main()
 
     for (int i = 0; i < NUM_ELEMENTS; i++)
     {
-        host_input_array[i] = i;
+        host_input_array[i] = 1;
     }
 
     // Allocate and setup device side buffers.
@@ -88,7 +105,21 @@ int main()
     const dim3 block_dim(BLOCK_DIM, 1, 1);
     const dim3 grid_dim((NUM_ELEMENTS + BLOCK_DIM - 1) / BLOCK_DIM, 1, 1);
 
-    blelloch_scan<<<grid_dim, block_dim>>>(device_input_output_array);
+    int* device_per_block_scan_output_array = nullptr;
+    cudaMalloc(&device_per_block_scan_output_array, sizeof(int) * grid_dim.x);
+
+    blelloch_scan<<<grid_dim, block_dim>>>(device_input_output_array, device_per_block_scan_output_array);
+
+    // Now find the scan value Of the per block scans done in the previous step :wow:
+    // This DOES mean that number of blocks launched in previous step = number of elements in device_per_block_scan_output_array
+    // must be less than or equal to maximum number of threads that can be processed in a block (1024 in this case).
+    {
+        const dim3 per_block_scan_grid_dim((grid_dim.x + BLOCK_DIM - 1) / BLOCK_DIM, 1, 1);
+        blelloch_scan<<<per_block_scan_grid_dim, block_dim>>>(device_per_block_scan_output_array, nullptr);
+    }
+
+    // Now, add each element to the coresponding value of device_per_block_scan_output_array.
+    add_array_with_per_block_scan_result<<<grid_dim, block_dim>>>(device_input_output_array, device_per_block_scan_output_array);
 
     cudaMemcpy(host_output_array, device_input_output_array, BYTES, cudaMemcpyKind::cudaMemcpyDeviceToHost);
 
@@ -106,12 +137,7 @@ int main()
 
     if (success)
     {
-        printf("Algorithm was succesfull.");
-        printf("Output : \n");
-        for (int i = 0; i < NUM_ELEMENTS; i++)
-        {
-            printf("%d ", host_output_array[i]);
-        }
+        printf("Algorithm was succesfull\n");
     }
 
     free(host_input_array);
