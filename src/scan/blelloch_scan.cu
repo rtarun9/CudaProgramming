@@ -21,8 +21,8 @@
 //        0       (a+b)
 //  0     a   (a+b)(a+b+c)
 
-#define NUM_ELEMENTS 32
-#define BLOCK_DIM 32
+#define NUM_ELEMENTS 1024
+#define BLOCK_DIM 1024
 
 __global__ void blelloch_scan(int* input_output_array)
 {
@@ -34,7 +34,7 @@ __global__ void blelloch_scan(int* input_output_array)
     __syncthreads();
 
     // Reduction step.
-    for (int i = 2; i <= BLOCK_DIM; i *= 2)
+    for (int i = 2; i < BLOCK_DIM; i *= 2)
     {
         int val_to_add_to_smem= 0;
         if ((threadIdx.x+ 1) % i == 0)
@@ -46,30 +46,21 @@ __global__ void blelloch_scan(int* input_output_array)
         __syncthreads();
     }
 
-
-
-    // Downsweep step.
     smem[BLOCK_DIM - 1] = 0;
     __syncthreads();
 
-    for (int i = BLOCK_DIM; i > 0; i /= 2)
+    // Downsweep step.
+    for (int i = BLOCK_DIM; i > 0; i = i / 2)
     {
-        int left = 0;
-        int right = 0;
-
-        if ((threadIdx.x + 1) %  i  == 0)
+        if (threadIdx.x > 0 && (threadIdx.x + 1) %  i  == 0)
         {
-            left = smem[(threadIdx.x - i/ 2)];
-            right = smem[threadIdx.x];
-        }
+            int left = smem[threadIdx.x - i / 2];
+            int right = smem[threadIdx.x];
 
-        __syncthreads();
-
-        if ((threadIdx.x + 1) %  i  == 0)
-        {
-            smem[(threadIdx.x - i/ 2)] = right;
             smem[threadIdx.x] = left + right;
+            smem[threadIdx.x - i / 2] = right;
         }
+
         __syncthreads();
     }
 
@@ -86,7 +77,7 @@ int main()
 
     for (int i = 0; i < NUM_ELEMENTS; i++)
     {
-        host_input_array[i] = 1;
+        host_input_array[i] = i;
     }
 
     // Allocate and setup device side buffers.
@@ -116,6 +107,11 @@ int main()
     if (success)
     {
         printf("Algorithm was succesfull.");
+        printf("Output : \n");
+        for (int i = 0; i < NUM_ELEMENTS; i++)
+        {
+            printf("%d ", host_output_array[i]);
+        }
     }
 
     free(host_input_array);
